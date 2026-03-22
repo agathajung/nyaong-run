@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0D1B3E"/>
+      <stop offset="100%" stop-color="#1A2A4A"/>
+    </linearGradient>
+    <linearGradient id="catBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFA052"/>
+      <stop offset="100%" stop-color="#E07030"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#B08850"/>
+      <stop offset="100%" stop-color="#806030"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="moonGrad" cx="40%" cy="35%">
+      <stop offset="0%" stop-color="#FFFDE0"/>
+      <stop offset="100%" stop-color="#FFE878"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 배경 -->
+  <rect width="1200" height="630" fill="url(#sky)"/>
+
+  <!-- 별 -->
+  <g fill="white" opacity="0.7">
+    <circle cx="60"  cy="40"  r="1.8"/>
+    <circle cx="130" cy="80"  r="1.2"/>
+    <circle cx="220" cy="30"  r="2.0"/>
+    <circle cx="310" cy="65"  r="1.4"/>
+    <circle cx="400" cy="25"  r="1.6"/>
+    <circle cx="500" cy="55"  r="1.0"/>
+    <circle cx="580" cy="35"  r="2.2"/>
+    <circle cx="670" cy="70"  r="1.3"/>
+    <circle cx="750" cy="20"  r="1.7"/>
+    <circle cx="820" cy="50"  r="1.1"/>
+    <circle cx="100" cy="150" r="1.5"/>
+    <circle cx="260" cy="120" r="1.9"/>
+    <circle cx="380" cy="140" r="1.2"/>
+    <circle cx="480" cy="100" r="1.6"/>
+    <circle cx="620" cy="130" r="1.0"/>
+    <circle cx="700" cy="105" r="2.0"/>
+    <circle cx="40"  cy="200" r="1.3"/>
+    <circle cx="170" cy="190" r="1.8"/>
+    <circle cx="330" cy="180" r="1.1"/>
+  </g>
+
+  <!-- 달 -->
+  <circle cx="1080" cy="95" r="58" fill="url(#moonGrad)" opacity="0.92" filter="url(#softGlow)"/>
+  <circle cx="1062" cy="82" r="48" fill="#1A2A4A" opacity="0.15"/>
+
+  <!-- 구름 -->
+  <g fill="rgba(255,255,255,0.12)">
+    <ellipse cx="80"  cy="180" rx="70" ry="28"/>
+    <ellipse cx="130" cy="168" rx="52" ry="22"/>
+    <ellipse cx="50"  cy="175" rx="40" ry="18"/>
+
+    <ellipse cx="550" cy="150" rx="80" ry="30"/>
+    <ellipse cx="600" cy="138" rx="60" ry="24"/>
+    <ellipse cx="510" cy="146" rx="45" ry="20"/>
+  </g>
+
+  <!-- 지붕 타일 -->
+  <g fill="#7A5820" opacity="0.9">
+    <polygon points="0,510 60,490 120,510"/>
+    <polygon points="120,510 180,490 240,510"/>
+    <polygon points="240,510 300,490 360,510"/>
+    <polygon points="360,510 420,490 480,510"/>
+    <polygon points="480,510 540,490 600,510"/>
+    <polygon points="600,510 660,490 720,510"/>
+    <polygon points="720,510 780,490 840,510"/>
+    <polygon points="840,510 900,490 960,510"/>
+    <polygon points="960,510 1020,490 1080,510"/>
+    <polygon points="1080,510 1140,490 1200,510"/>
+  </g>
+
+  <!-- 지면 -->
+  <rect x="0" y="510" width="1200" height="120" fill="url(#ground)"/>
+  <rect x="0" y="508" width="1200" height="7" fill="#D4A050"/>
+
+  <!-- 수직 줄무늬 (지면) -->
+  <g stroke="#906828" stroke-width="1.5" opacity="0.4">
+    <line x1="80"  y1="515" x2="80"  y2="630"/>
+    <line x1="200" y1="515" x2="200" y2="630"/>
+    <line x1="320" y1="515" x2="320" y2="630"/>
+    <line x1="440" y1="515" x2="440" y2="630"/>
+    <line x1="560" y1="515" x2="560" y2="630"/>
+    <line x1="680" y1="515" x2="680" y2="630"/>
+    <line x1="800" y1="515" x2="800" y2="630"/>
+    <line x1="920" y1="515" x2="920" y2="630"/>
+    <line x1="1040" y1="515" x2="1040" y2="630"/>
+    <line x1="1160" y1="515" x2="1160" y2="630"/>
+  </g>
+
+  <!-- ═══ 고양이 (앉기 포즈) ═══ -->
+  <!-- 꼬리: 몸 뒤에서 앞발 옆으로 -->
+  <path d="M 885,468 C 858,485 870,518 910,516" stroke="#E07030" stroke-width="14" fill="none" stroke-linecap="round"/>
+  <path d="M 885,468 C 858,485 870,518 910,516" stroke="#FFA868" stroke-width="6"  fill="none" stroke-linecap="round"/>
+
+  <!-- 앞발 -->
+  <rect x="895" y="494" width="18" height="22" rx="6" fill="#E07030"/>
+  <ellipse cx="904" cy="518" rx="12" ry="6" fill="#C86028"/>
+  <rect x="935" y="494" width="18" height="22" rx="6" fill="#E07030"/>
+  <ellipse cx="944" cy="518" rx="12" ry="6" fill="#C86028"/>
+
+  <!-- 몸통 -->
+  <ellipse cx="920" cy="475" rx="58" ry="40" fill="url(#catBody)"/>
+  <!-- 줄무늬 -->
+  <g stroke="#C06020" stroke-width="4" opacity="0.45" stroke-linecap="round">
+    <path d="M 888,450 Q 892,475 888,498"/>
+    <path d="M 908,445 Q 912,475 908,500"/>
+    <path d="M 928,443 Q 932,475 928,500"/>
+  </g>
+
+  <!-- 귀 (먼저) -->
+  <polygon points="946,400 956,378 970,402" fill="#FF8C42"/>
+  <polygon points="949,400 957,382 968,401" fill="#FF9AAA" opacity="0.8"/>
+  <polygon points="918,405 926,380 940,408" fill="#FF8C42"/>
+  <polygon points="921,405 927,384 938,407" fill="#FF9AAA" opacity="0.8"/>
+
+  <!-- 머리 -->
+  <circle cx="952" cy="428" r="36" fill="url(#catBody)"/>
+
+  <!-- 눈 -->
+  <ellipse cx="941" cy="424" rx="7" ry="8" fill="#3A9D44"/>
+  <ellipse cx="941" cy="424" rx="3" ry="7" fill="#1a1a1a"/>
+  <circle  cx="938" cy="421" r="2.5" fill="white" opacity="0.85"/>
+  <ellipse cx="962" cy="424" rx="7" ry="8" fill="#3A9D44"/>
+  <ellipse cx="962" cy="424" rx="3" ry="7" fill="#1a1a1a"/>
+  <circle  cx="959" cy="421" r="2.5" fill="white" opacity="0.85"/>
+
+  <!-- 코 -->
+  <polygon points="951,435 947,431 955,431" fill="#FF9AAA"/>
+
+  <!-- 입 -->
+  <path d="M 951,435 Q 946,441 942,438" stroke="#C06060" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <path d="M 951,435 Q 956,441 960,438" stroke="#C06060" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- 수염 -->
+  <g stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-linecap="round">
+    <line x1="949" y1="432" x2="922" y2="428"/>
+    <line x1="949" y1="435" x2="922" y2="438"/>
+    <line x1="953" y1="432" x2="980" y2="428"/>
+    <line x1="953" y1="435" x2="980" y2="438"/>
+  </g>
+
+  <!-- 아이템 (떠다니는 효과) -->
+  <text x="860" y="370" font-size="42" font-family="serif" text-anchor="middle">🐟</text>
+  <text x="1110" y="320" font-size="36" font-family="serif" text-anchor="middle">🧶</text>
+  <text x="1050" y="400" font-size="32" font-family="serif" text-anchor="middle">🌿</text>
+
+  <!-- 장애물 힌트 -->
+  <text x="790" y="275" font-size="34" font-family="serif" text-anchor="middle">🐕</text>
+  <text x="1140" y="230" font-size="30" font-family="serif" text-anchor="middle">🧴</text>
+
+  <!-- ═══ 타이틀 영역 ═══ -->
+  <!-- 타이틀 배경 패널 -->
+  <rect x="40" y="90" width="680" height="360" rx="24" fill="rgba(0,0,0,0.45)"/>
+
+  <!-- 고양이 발자국 장식 -->
+  <g fill="rgba(255,140,66,0.18)">
+    <circle cx="80"  cy="130" r="12"/>
+    <circle cx="104" cy="116" r="8"/>
+    <circle cx="118" cy="128" r="8"/>
+    <circle cx="100" cy="144" r="8"/>
+
+    <circle cx="640" cy="420" r="10"/>
+    <circle cx="660" cy="408" r="7"/>
+    <circle cx="672" cy="418" r="7"/>
+    <circle cx="656" cy="432" r="7"/>
+  </g>
+
+  <!-- 메인 타이틀 -->
+  <text x="360" y="210"
+        font-family="'Segoe UI', 'Malgun Gothic', sans-serif"
+        font-size="112" font-weight="bold"
+        fill="white" text-anchor="middle"
+        filter="url(#glow)" opacity="0.95">냐옹런</text>
+
+  <!-- 영문 서브타이틀 -->
+  <text x="360" y="258"
+        font-family="'Segoe UI', sans-serif"
+        font-size="28" font-weight="600" letter-spacing="6"
+        fill="#FFD700" text-anchor="middle" opacity="0.92">NYAONG  RUN</text>
+
+  <!-- 구분선 -->
+  <line x1="120" y1="278" x2="600" y2="278" stroke="rgba(255,215,0,0.35)" stroke-width="1.5"/>
+
+  <!-- 설명 텍스트 -->
+  <text x="360" y="322"
+        font-family="'Segoe UI', 'Malgun Gothic', sans-serif"
+        font-size="26" fill="rgba(255,255,255,0.85)" text-anchor="middle">고양이와 함께하는 엔드리스 러너</text>
+
+  <!-- 특징 배지들 -->
+  <g font-family="'Segoe UI', 'Malgun Gothic', sans-serif" font-size="18" fill="rgba(255,255,255,0.78)" text-anchor="middle">
+    <rect x="100" y="348" width="140" height="34" rx="17" fill="rgba(255,140,66,0.3)" stroke="rgba(255,140,66,0.6)" stroke-width="1"/>
+    <text x="170" y="370">🐱 6종 캐릭터</text>
+
+    <rect x="252" y="348" width="130" height="34" rx="17" fill="rgba(255,220,0,0.2)"  stroke="rgba(255,220,0,0.5)"  stroke-width="1"/>
+    <text x="317" y="370">⭐ 콤보 시스템</text>
+
+    <rect x="394" y="348" width="130" height="34" rx="17" fill="rgba(0,255,136,0.2)"  stroke="rgba(0,255,136,0.5)"  stroke-width="1"/>
+    <text x="459" y="370">🌿 캣닢 무적</text>
+  </g>
+
+  <!-- 하단 배지 -->
+  <g font-family="'Segoe UI', 'Malgun Gothic', sans-serif" font-size="17" fill="rgba(255,255,255,0.65)" text-anchor="middle">
+    <rect x="146" y="392" width="106" height="30" rx="15" fill="rgba(255,80,80,0.2)" stroke="rgba(255,80,80,0.45)" stroke-width="1"/>
+    <text x="199" y="412">❤️ 3목숨</text>
+
+    <rect x="264" y="392" width="106" height="30" rx="15" fill="rgba(100,150,255,0.2)" stroke="rgba(100,150,255,0.45)" stroke-width="1"/>
+    <text x="317" y="412">⏸ 일시정지</text>
+
+    <rect x="382" y="392" width="126" height="30" rx="15" fill="rgba(255,200,100,0.2)" stroke="rgba(255,200,100,0.45)" stroke-width="1"/>
+    <text x="445" y="412">🏆 최고기록</text>
+  </g>
+
+  <!-- URL 배너 -->
+  <rect x="0" y="594" width="1200" height="36" fill="rgba(0,0,0,0.55)"/>
+  <text x="600" y="617"
+        font-family="'Courier New', monospace"
+        font-size="19" letter-spacing="2"
+        fill="rgba(255,255,255,0.65)" text-anchor="middle">▶  nyaong-run.vercel.app</text>
+</svg>
