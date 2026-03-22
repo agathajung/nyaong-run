@@ -1,0 +1,1762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>냐옹런 🐱</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    canvas { display: block; touch-action: none; }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+// =============================================================
+// SECTION 1: 상수 & 열거형
+// =============================================================
+const GAME_STATE = { MENU: 0, CHARACTER_SELECT: 1, TUTORIAL: 2, PLAYING: 3, PAUSED: 4, GAMEOVER: 5 };
+
+const LOGICAL_W = 800;
+const LOGICAL_H = 400;
+const GROUND_Y = LOGICAL_H * 0.78;
+const CAT_X = LOGICAL_W * 0.18;
+
+const GRAVITY = 1300;
+const JUMP_FORCE = -580;
+const DOUBLE_JUMP_FORCE = -480;
+const BASE_SPEED = 260;       // 시작 속도 낮춤 (원래 300)
+const MAX_SPEED = 660;
+const SPEED_INCREMENT = 12;
+const SCORE_PER_SPEED_TIER = 600;  // 속도 증가 구간 늘림 (원래 500)
+const SCORE_RATE = 5;
+
+const CAT_W = 62, CAT_H = 48;  // 더 큰 고양이
+const CAT_DUCK_H = 28;
+
+const CAT_PRESETS = [
+  { name: '주황이', body: '#FF8C42', stripe: '#CC6A1E', belly: '#FFD0A0', eye: '#3A9D44', pupil: '#1a1a1a', innerEar: '#FF6A9A', pattern: 'stripe' },
+  { name: '까망이', body: '#3A3A3A', stripe: '#222',    belly: '#666',    eye: '#FFD700', pupil: '#1a1a1a', innerEar: '#aa3355', pattern: 'none' },
+  { name: '하양이', body: '#F2F2F2', stripe: '#DDD',    belly: '#FFFFFF', eye: '#4488FF', pupil: '#1a1a1a', innerEar: '#FFB6C1', pattern: 'none' },
+  { name: '삼색이', body: '#FF8C42', stripe: '#2D2D2D', belly: '#F2F2F2', eye: '#3A9D44', pupil: '#1a1a1a', innerEar: '#FF6A9A', pattern: 'patch' },
+  { name: '회색이', body: '#9E9E9E', stripe: '#6A6A6A', belly: '#D8D8D8', eye: '#88AAFF', pupil: '#1a1a1a', innerEar: '#CC99BB', pattern: 'stripe' },
+  { name: '복숭아', body: '#FFCCAA', stripe: '#EEA080', belly: '#FFFFFF', eye: '#7B5EA7', pupil: '#1a1a1a', innerEar: '#FFB6C1', pattern: 'ragdoll' },
+];
+
+// =============================================================
+// SECTION 2: 유틸 함수
+// =============================================================
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const randBetween = (lo, hi) => lo + Math.random() * (hi - lo);
+const chance = (p) => Math.random() < p;
+
+function rectOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function lightenColor(hex, amt) {
+  const r = Math.min(255, parseInt(hex.slice(1,3),16) + amt);
+  const g = Math.min(255, parseInt(hex.slice(3,5),16) + amt);
+  const b = Math.min(255, parseInt(hex.slice(5,7),16) + amt);
+  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+function darkenColor(hex, amt) {
+  const r = Math.max(0, parseInt(hex.slice(1,3),16) - amt);
+  const g = Math.max(0, parseInt(hex.slice(3,5),16) - amt);
+  const b = Math.max(0, parseInt(hex.slice(5,7),16) - amt);
+  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+function lerpColor(a, b, t) {
+  const ah = a.replace('#',''), bh = b.replace('#','');
+  const ar=parseInt(ah.substr(0,2),16), ag=parseInt(ah.substr(2,2),16), ab2=parseInt(ah.substr(4,2),16);
+  const br=parseInt(bh.substr(0,2),16), bg=parseInt(bh.substr(2,2),16), bb2=parseInt(bh.substr(4,2),16);
+  const r=Math.round(lerp(ar,br,t)), g=Math.round(lerp(ag,bg,t)), b2=Math.round(lerp(ab2,bb2,t));
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b2.toString(16).padStart(2,'0')}`;
+}
+
+// =============================================================
+// SECTION 3: 드로잉 헬퍼
+// =============================================================
+function drawRoundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function drawEmoji(ctx, emoji, x, y, size) {
+  ctx.save();
+  ctx.font = `${size}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, x, y);
+  ctx.restore();
+}
+
+// 다리 보조 함수
+function drawLeg(ctx, x, y, w, h, color, footColor) {
+  ctx.fillStyle = color;
+  drawRoundRect(ctx, x, y, w, h, 4);
+  ctx.fill();
+  ctx.fillStyle = footColor;
+  ctx.beginPath();
+  ctx.ellipse(x + w/2, y + h + 1, w * 0.52, 4.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSittingPaw(ctx, x, y, color, footColor) {
+  ctx.fillStyle = color;
+  drawRoundRect(ctx, x, y, 11, 13, 4);
+  ctx.fill();
+  ctx.fillStyle = footColor;
+  ctx.beginPath();
+  ctx.ellipse(x + 5.5, y + 15, 6.5, 4.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// =============================================================
+// 고양이 그리기 (개선된 버전)
+// =============================================================
+function drawCat(ctx, x, y, preset, pose, animFrame, tailAngle, scale = 1, shieldOn = false) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  const p = preset;
+  const isDuck = pose === 'duck';
+  const isSit = pose === 'sit';
+  const bW = CAT_W, bH = isDuck ? CAT_DUCK_H : CAT_H;
+  const bX = -bW / 2, bY = -bH;
+
+  if (shieldOn) {
+    ctx.shadowColor = '#00FF88';
+    ctx.shadowBlur = 22;
+  }
+
+  // ── 꼬리 ─────────────────────────────────────────────────
+  if (!isSit) {
+    ctx.save();
+    ctx.shadowBlur = 0;
+    const tx = bX + 5, ty = bY + bH * 0.75;
+    const swing = Math.sin(tailAngle) * 20;
+    const cp1x = tx - 28, cp1y = ty - 4 + swing * 0.5;
+    const cp2x = tx - 42 + swing * 0.3, cp2y = bY + bH * 0.38;
+    const ex = tx - 22 + swing * 0.8, ey = bY + bH * 0.14;
+
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, ex, ey);
+    ctx.strokeStyle = p.body;
+    ctx.lineWidth = 11;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    ctx.strokeStyle = lightenColor(p.body, 28);
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    ctx.strokeStyle = lightenColor(p.body, 50);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    // 앉기 꼬리: 몸 뒤쪽에서 아래로 휘어 앞발 옆까지
+    ctx.save();
+    ctx.shadowBlur = 0;
+    const tx = bX + 4, ty = bY + bH * 0.82;
+    const cp1x = tx - 20, cp1y = ty + 14;
+    const cp2x = bX + bW * 0.52, cp2y = bY + bH + 20;
+    const ex = bX + bW * 0.86, ey = bY + bH + 7;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, ex, ey);
+    ctx.strokeStyle = p.body;
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.strokeStyle = lightenColor(p.body, 28);
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── 다리 (몸통보다 먼저 그려서 몸통이 자연스럽게 덮게 함) ────────────
+  const legCol = darkenColor(p.body, 8);
+  const footCol = darkenColor(p.body, 22);
+
+  if (!isSit) {
+    if (pose === 'jump' || pose === 'dead') {
+      drawLeg(ctx, bX + 12, bY + bH - 14, 13, 20, legCol, footCol);
+      drawLeg(ctx, bX + bW - 26, bY + bH - 14, 13, 20, legCol, footCol);
+    } else if (isDuck) {
+      drawLeg(ctx, bX + 6, bY + bH - 10, 14, 16, legCol, footCol);
+      drawLeg(ctx, bX + bW - 21, bY + bH - 10, 14, 16, legCol, footCol);
+    } else {
+      const off1 = animFrame === 0 ? 14 : 9;
+      const off2 = animFrame === 0 ? 9 : 14;
+      drawLeg(ctx, bX + 12, bY + bH - 14, 13, off1 + 12, legCol, footCol);
+      drawLeg(ctx, bX + bW - 26, bY + bH - 14, 13, off2 + 12, legCol, footCol);
+    }
+  } else {
+    drawSittingPaw(ctx, bX + 12, bY + bH, legCol, footCol);
+    drawSittingPaw(ctx, bX + bW - 24, bY + bH, legCol, footCol);
+  }
+
+  // ── 몸통 ─────────────────────────────────────────────────
+  const bodyGrad = ctx.createLinearGradient(bX, bY, bX, bY + bH);
+  bodyGrad.addColorStop(0, lightenColor(p.body, 24));
+  bodyGrad.addColorStop(0.55, p.body);
+  bodyGrad.addColorStop(1, darkenColor(p.body, 14));
+  ctx.fillStyle = bodyGrad;
+  drawRoundRect(ctx, bX, bY, bW, bH, 12);
+  ctx.fill();
+
+  // 무늬
+  if (p.pattern === 'stripe') {
+    ctx.strokeStyle = p.stripe;
+    ctx.lineWidth = 4.5;
+    ctx.globalAlpha = 0.52;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      const sx = bX + bW * (0.2 + i * 0.2);
+      ctx.beginPath();
+      ctx.moveTo(sx, bY + 6);
+      ctx.quadraticCurveTo(sx + 5, bY + bH * 0.5, sx, bY + bH - 6);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (p.pattern === 'patch') {
+    ctx.fillStyle = p.stripe;
+    ctx.beginPath();
+    ctx.ellipse(bX + bW * 0.17, bY + bH * 0.28, 9, 11, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(bX + bW * 0.66, bY + bH * 0.65, 8, 10, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (p.pattern === 'ragdoll') {
+    ctx.fillStyle = p.belly;
+    ctx.globalAlpha = 0.68;
+    ctx.beginPath();
+    ctx.ellipse(bX + bW * 0.44, bY + bH * 0.56, bW * 0.24, bH * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── 머리 ─────────────────────────────────────────────────
+  const hR = isDuck ? 17 : 23;
+  const hX = bX + bW * 0.69, hY = bY + (isDuck ? 1 : -10);
+
+  // ── 귀 (머리보다 먼저 그려서 머리 원이 밑면을 자연스럽게 덮음) ──────
+  const earW = isDuck ? 7 : 10;
+  const earH = isDuck ? 9 : 13;
+
+  // 왼쪽 귀 (뒤쪽)
+  const lEX = hX - hR * 0.38, lEY = hY - hR * 0.72;
+  ctx.fillStyle = p.body;
+  ctx.beginPath();
+  ctx.moveTo(lEX - earW,        lEY + 4);
+  ctx.lineTo(lEX - 2,           lEY - earH);
+  ctx.lineTo(lEX + earW * 0.7,  lEY + 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = p.innerEar;
+  ctx.globalAlpha = 0.78;
+  ctx.beginPath();
+  ctx.moveTo(lEX - earW * 0.62, lEY + 3);
+  ctx.lineTo(lEX - 2,           lEY - earH * 0.60);
+  ctx.lineTo(lEX + earW * 0.42, lEY + 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // 오른쪽 귀 (앞쪽)
+  const rEX = hX + hR * 0.28, rEY = hY - hR * 0.78;
+  ctx.fillStyle = p.body;
+  ctx.beginPath();
+  ctx.moveTo(rEX - earW * 0.7,  rEY + 4);
+  ctx.lineTo(rEX + 2,           rEY - earH);
+  ctx.lineTo(rEX + earW,        rEY + 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = p.innerEar;
+  ctx.globalAlpha = 0.78;
+  ctx.beginPath();
+  ctx.moveTo(rEX - earW * 0.42, rEY + 3);
+  ctx.lineTo(rEX + 2,           rEY - earH * 0.60);
+  ctx.lineTo(rEX + earW * 0.62, rEY + 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // ── 머리 (귀 위에 그려서 귀 밑면 자연스럽게 연결) ─────────────────
+  const headGrad = ctx.createRadialGradient(hX - 5, hY - 8, 2, hX, hY, hR);
+  headGrad.addColorStop(0, lightenColor(p.body, 30));
+  headGrad.addColorStop(0.65, p.body);
+  headGrad.addColorStop(1, darkenColor(p.body, 10));
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.arc(hX, hY, hR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 삼색이 머리 패치
+  if (p.pattern === 'patch') {
+    ctx.fillStyle = p.stripe;
+    ctx.globalAlpha = 0.78;
+    ctx.beginPath();
+    ctx.arc(hX - 7, hY - 4, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // 턱 하이라이트
+  ctx.fillStyle = p.belly;
+  ctx.globalAlpha = 0.32;
+  ctx.beginPath();
+  ctx.ellipse(hX, hY + hR * 0.42, hR * 0.52, hR * 0.36, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // ── 눈 ───────────────────────────────────────────────────
+  const eyeW = 4.8, eyeH = isDuck ? 3.2 : 5.8;
+
+  if (pose === 'dead') {
+    ctx.fillStyle = '#333';
+    ctx.font = `bold ${isDuck ? 12 : 15}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✕', hX - 5.5, hY - 0.5);
+    ctx.fillText('✕', hX + 7.5, hY - 0.5);
+  } else if (pose === 'happy') {
+    ctx.strokeStyle = p.eye;
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(hX - 5, hY - 0.5, 5, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(hX + 7.5, hY - 0.5, 5, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    // 반짝임
+    ctx.fillStyle = '#FFD700';
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath(); ctx.arc(hX - 3.5, hY - 6, 2, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hX + 9, hY - 6, 2, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  } else {
+    // 왼쪽 눈
+    ctx.fillStyle = p.eye;
+    ctx.beginPath();
+    ctx.ellipse(hX - 5.5, hY - 0.5, eyeW, eyeH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 세로 동공
+    ctx.fillStyle = p.pupil;
+    ctx.beginPath();
+    ctx.ellipse(hX - 5.5, hY - 0.5, eyeW * 0.38, eyeH * 0.88, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 하이라이트
+    ctx.fillStyle = '#FFFFFF';
+    ctx.globalAlpha = 0.88;
+    ctx.beginPath();
+    ctx.ellipse(hX - 7.2, hY - 2.8, 1.8, 1.4, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // 오른쪽 눈
+    ctx.fillStyle = p.eye;
+    ctx.beginPath();
+    ctx.ellipse(hX + 7, hY - 0.5, eyeW, eyeH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.pupil;
+    ctx.beginPath();
+    ctx.ellipse(hX + 7, hY - 0.5, eyeW * 0.38, eyeH * 0.88, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.globalAlpha = 0.88;
+    ctx.beginPath();
+    ctx.ellipse(hX + 5.4, hY - 2.8, 1.8, 1.4, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── 코 & 수염 & 입 ───────────────────────────────────────
+  // 삼각형 코
+  ctx.fillStyle = '#FF9AAA';
+  ctx.beginPath();
+  ctx.moveTo(hX + 1.5, hY + 6);
+  ctx.lineTo(hX - 2.5, hY + 3.2);
+  ctx.lineTo(hX + 5.5, hY + 3.2);
+  ctx.closePath();
+  ctx.fill();
+
+  // 입
+  ctx.strokeStyle = darkenColor(p.body, 35);
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.65;
+  ctx.beginPath();
+  ctx.moveTo(hX + 1.5, hY + 6);
+  ctx.quadraticCurveTo(hX - 2, hY + 10, hX - 5.5, hY + 7.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(hX + 1.5, hY + 6);
+  ctx.quadraticCurveTo(hX + 5, hY + 10, hX + 8.5, hY + 7.5);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // 수염 (3쌍)
+  ctx.strokeStyle = '#E8E8E8';
+  ctx.lineWidth = 1.3;
+  ctx.globalAlpha = 0.78;
+  const whiskers = [
+    [hX - 1, hY + 3.5, hX - 18, hY + 1],
+    [hX - 1, hY + 5.5, hX - 18, hY + 7.5],
+    [hX - 1, hY + 4.2, hX - 17, hY - 1.5],
+    [hX + 3, hY + 3.5, hX + 21, hY + 1],
+    [hX + 3, hY + 5.5, hX + 21, hY + 7.5],
+    [hX + 3, hY + 4.2, hX + 20, hY - 1.5],
+  ];
+  whiskers.forEach(([x1,y1,x2,y2]) => {
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+}
+
+// =============================================================
+// SECTION 3.5: SoundManager (Web Audio API)
+// =============================================================
+const SoundManager = {
+  ctx: null,
+  enabled: false,
+
+  init() {
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.enabled = true;
+    } catch(e) { this.enabled = false; }
+  },
+
+  _tone(freq, endFreq, dur, type = 'sine', vol = 0.25) {
+    if (!this.enabled || !this.ctx) return;
+    try {
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.type = type;
+      const t = this.ctx.currentTime;
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.linearRampToValueAtTime(endFreq, t + dur);
+      gain.gain.setValueAtTime(vol, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      osc.start(t);
+      osc.stop(t + dur + 0.01);
+    } catch(e) {}
+  },
+
+  jump()        { this._tone(260, 420, 0.11, 'sine', 0.18); },
+  doubleJump()  { this._tone(380, 600, 0.10, 'sine', 0.16); },
+  collectFish() { this._tone(880, 1100, 0.13, 'sine', 0.22); },
+  collectYarn() { this._tone(660, 780, 0.11, 'triangle', 0.18); },
+  collectCatnip() {
+    this._tone(880, 880, 0.07, 'sine', 0.28);
+    setTimeout(() => this._tone(1100, 1100, 0.07, 'sine', 0.28), 70);
+    setTimeout(() => this._tone(1320, 1420, 0.12, 'sine', 0.28), 140);
+  },
+  hit()  { this._tone(320, 55, 0.38, 'sawtooth', 0.38); },
+  ouch() { this._tone(440, 200, 0.22, 'sawtooth', 0.28); },
+  levelUp() {
+    [440, 550, 660, 880].forEach((f, i) => {
+      setTimeout(() => this._tone(f, f * 1.04, 0.14, 'sine', 0.18), i * 80);
+    });
+  },
+};
+
+// =============================================================
+// SECTION 4: 엔티티 클래스
+// =============================================================
+
+class Cat {
+  constructor(preset) {
+    this.preset = preset;
+    this.x = CAT_X;
+    this.y = GROUND_Y;
+    this.vy = 0;
+    this.isGrounded = true;
+    this.doubleJumpAvailable = false;
+    this.isDucking = false;
+    this.animFrame = 0;
+    this.animTimer = 0;
+    this.tailAngle = 0;
+    this.shieldActive = false;
+    this.shieldTimer = 0;
+    this.pose = 'run';
+    this.comboCount = 0;
+    this.comboTimer = 0;
+    this.lives = 3;
+    this.hitInvincible = false;
+    this.hitInvincibleTimer = 0;
+    this.flashTimer = 0;
+  }
+
+  jump() {
+    if (this.isGrounded) {
+      this.vy = JUMP_FORCE;
+      this.isGrounded = false;
+      this.doubleJumpAvailable = true;
+    } else if (this.doubleJumpAvailable) {
+      this.vy = DOUBLE_JUMP_FORCE;
+      this.doubleJumpAvailable = false;
+    }
+  }
+
+  duck(on) { this.isDucking = on; }
+
+  hitByObstacle() {
+    if (this.hitInvincible || this.shieldActive) return 0; // 무적 중
+    this.lives--;
+    if (this.lives <= 0) return -1; // 게임 오버
+    this.hitInvincible = true;
+    this.hitInvincibleTimer = 2.0;
+    this.flashTimer = 0;
+    return 1; // 피격, 생존
+  }
+
+  activateShield() {
+    this.shieldActive = true;
+    this.shieldTimer = 3.0;
+    this.pose = 'happy';
+  }
+
+  getBounds() {
+    const bH = this.isDucking ? CAT_DUCK_H : CAT_H;
+    const insetX = 0.22, insetY = 0.15;
+    return {
+      x: this.x - CAT_W/2 + CAT_W * insetX,
+      y: this.y - bH + bH * insetY,
+      w: CAT_W * (1 - insetX * 2),
+      h: bH * (1 - insetY * 2),
+    };
+  }
+
+  update(dt, scrollSpeed) {
+    this.vy += GRAVITY * dt;
+    this.y += this.vy * dt;
+    if (this.y >= GROUND_Y) {
+      this.y = GROUND_Y;
+      this.vy = 0;
+      this.isGrounded = true;
+      this.doubleJumpAvailable = false;
+    }
+    const tailSpeed = 2 + (scrollSpeed - BASE_SPEED) / 80;
+    this.tailAngle += tailSpeed * dt;
+    this.animTimer += dt;
+    if (this.animTimer > 0.1) { this.animTimer = 0; this.animFrame = 1 - this.animFrame; }
+    if (this.shieldActive) {
+      this.shieldTimer -= dt;
+      if (this.shieldTimer <= 0) { this.shieldActive = false; }
+    }
+    if (this.hitInvincible) {
+      this.hitInvincibleTimer -= dt;
+      this.flashTimer += dt;
+      if (this.hitInvincibleTimer <= 0) { this.hitInvincible = false; this.flashTimer = 0; }
+    }
+    if (this.comboCount > 0) {
+      this.comboTimer -= dt;
+      if (this.comboTimer <= 0) this.comboCount = 0;
+    }
+    if (this.pose !== 'dead' && this.pose !== 'happy') {
+      if (!this.isGrounded) this.pose = 'jump';
+      else if (this.isDucking) this.pose = 'duck';
+      else this.pose = 'run';
+    }
+    if (this.shieldActive && this.pose !== 'dead') this.pose = 'happy';
+  }
+
+  draw(ctx) {
+    if (this.hitInvincible && Math.floor(this.flashTimer * 8) % 2 === 1) return;
+    drawCat(ctx, this.x, this.y, this.preset, this.pose, this.animFrame, this.tailAngle, 1, this.shieldActive);
+  }
+}
+
+// ── Obstacle ──────────────────────────────────────────────────
+class Obstacle {
+  constructor(type, x) {
+    this.type = type;
+    this.x = x;
+    this.phase = Math.random() * Math.PI * 2;
+    if (type === 'dog') {
+      this.y = GROUND_Y; this.w = 46; this.h = 46; this.emoji = '🐕';
+    } else if (type === 'spray') {
+      this.y = GROUND_Y - 88; this.w = 36; this.h = 36; this.emoji = '🧴';
+      this.floatAmp = 8;
+    } else if (type === 'puddle') {
+      this.y = GROUND_Y + 4; this.w = 64; this.h = 14; this.emoji = null;
+    } else if (type === 'roomba') {
+      this.y = GROUND_Y - 12; this.w = 42; this.h = 42; this.emoji = '🤖';
+      this.oscAmp = 26;
+    }
+    this.baseY = this.y;
+  }
+
+  update(dt, scrollSpeed) {
+    this.x -= scrollSpeed * dt;
+    this.phase += dt * 2.5;
+    if (this.type === 'spray') this.y = this.baseY + Math.sin(this.phase) * this.floatAmp;
+    if (this.type === 'roomba') this.y = this.baseY + Math.sin(this.phase * 0.8) * this.oscAmp;
+  }
+
+  getBounds() {
+    const inset = 0.24;
+    return {
+      x: this.x - this.w/2 + this.w * inset,
+      y: this.y - this.h + this.h * inset,
+      w: this.w * (1 - inset * 2),
+      h: this.h * (1 - inset * 2),
+    };
+  }
+
+  draw(ctx) {
+    if (this.type === 'puddle') {
+      ctx.save();
+      ctx.fillStyle = 'rgba(100,160,255,0.5)';
+      ctx.strokeStyle = 'rgba(80,130,220,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y - this.h/2, this.w/2, this.h/2, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // 반짝임
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(this.x - 8, this.y - this.h/2 - 2, 6, 2.5, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      drawEmoji(ctx, this.emoji, this.x, this.y - this.h/2, this.h * 1.15);
+    }
+  }
+}
+
+class ObstacleSpawner {
+  constructor() {
+    this.obstacles = [];
+    this.timer = 1100;  // 초기 유예 (약 4초)
+    this.minGap = 460;
+  }
+
+  update(dt, scrollSpeed, score) {
+    this.obstacles.forEach(o => o.update(dt, scrollSpeed));
+    this.obstacles = this.obstacles.filter(o => o.x > -100);
+
+    const tier = Math.floor(score / SCORE_PER_SPEED_TIER);
+    this.minGap = Math.max(240, 460 - tier * 12);
+
+    this.timer -= scrollSpeed * dt;
+    if (this.timer <= 0) {
+      this.spawnNext(score);
+      this.timer = this.minGap + randBetween(80, 220);
+    }
+  }
+
+  spawnNext(score) {
+    const tier = Math.floor(score / SCORE_PER_SPEED_TIER);
+    let types = ['dog', 'puddle'];
+    if (tier >= 1) types.push('spray');
+    if (tier >= 4) types.push('roomba');
+
+    const type = types[Math.floor(Math.random() * types.length)];
+    this.obstacles.push(new Obstacle(type, LOGICAL_W + 60));
+
+    // 고점수 복합 패턴 (확률 낮춤)
+    if (tier >= 3 && chance(0.18) && type !== 'spray') {
+      this.obstacles.push(new Obstacle('spray', LOGICAL_W + 90));
+    }
+  }
+
+  checkCollision(catBounds) {
+    return this.obstacles.some(o => rectOverlap(catBounds, o.getBounds()));
+  }
+
+  draw(ctx) { this.obstacles.forEach(o => o.draw(ctx)); }
+  reset() { this.obstacles = []; this.timer = 1100; }
+}
+
+// ── Collectible ───────────────────────────────────────────────
+class Collectible {
+  constructor(type, x) {
+    this.type = type;
+    this.x = x;
+    this.bobPhase = Math.random() * Math.PI * 2;
+    if (type === 'fish') {
+      this.baseY = GROUND_Y - 62 - randBetween(0, 28);
+      this.points = 50; this.emoji = '🐟'; this.size = 32;
+    } else if (type === 'yarn') {
+      this.baseY = GROUND_Y - 58 - randBetween(0, 22);
+      this.points = 30; this.emoji = '🧶'; this.size = 30;
+    } else {
+      this.baseY = GROUND_Y - 72 - randBetween(0, 18);
+      this.points = 80; this.emoji = '🌿'; this.size = 30;
+    }
+    this.y = this.baseY;
+    this.w = 32; this.h = 32;
+    this.collected = false;
+  }
+
+  update(dt, scrollSpeed) {
+    this.x -= scrollSpeed * dt;
+    this.bobPhase += dt * 2.8;
+    this.y = this.baseY + Math.sin(this.bobPhase) * 6;
+  }
+
+  getBounds() {
+    return { x: this.x - this.w/2, y: this.y - this.h/2, w: this.w, h: this.h };
+  }
+
+  draw(ctx) {
+    if (this.type === 'catnip') {
+      ctx.save();
+      ctx.shadowColor = '#00FF88';
+      ctx.shadowBlur = 14 + Math.sin(this.bobPhase * 2) * 5;
+      drawEmoji(ctx, this.emoji, this.x, this.y, this.size);
+      ctx.restore();
+    } else {
+      drawEmoji(ctx, this.emoji, this.x, this.y, this.size);
+    }
+  }
+}
+
+class CollectibleSpawner {
+  constructor() {
+    this.collectibles = [];
+    this.timer = randBetween(260, 440);
+  }
+
+  update(dt, scrollSpeed) {
+    this.collectibles.forEach(c => c.update(dt, scrollSpeed));
+    this.collectibles = this.collectibles.filter(c => c.x > -60 && !c.collected);
+    this.timer -= scrollSpeed * dt;
+    if (this.timer <= 0) {
+      this.spawn();
+      this.timer = randBetween(260, 440);
+    }
+  }
+
+  spawn() {
+    const r = Math.random();
+    const type = r < 0.5 ? 'fish' : r < 0.85 ? 'yarn' : 'catnip';
+    this.collectibles.push(new Collectible(type, LOGICAL_W + 40));
+  }
+
+  checkCollect(catBounds) {
+    for (const c of this.collectibles) {
+      if (!c.collected && rectOverlap(catBounds, c.getBounds())) {
+        c.collected = true;
+        return c;
+      }
+    }
+    return null;
+  }
+
+  draw(ctx) { this.collectibles.forEach(c => c.draw(ctx)); }
+  reset() { this.collectibles = []; this.timer = randBetween(260, 440); }
+}
+
+// ── ParticleSystem ────────────────────────────────────────────
+class Particle {
+  constructor(x, y, color) {
+    this.x = x; this.y = y;
+    this.vx = randBetween(-130, 130);
+    this.vy = randBetween(-200, -60);
+    this.maxLife = randBetween(0.4, 0.9);
+    this.life = this.maxLife;
+    this.color = color;
+    this.size = randBetween(3, 7);
+    this.gravity = 220;
+  }
+  update(dt) {
+    this.vy += this.gravity * dt;
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    this.life -= dt;
+  }
+  draw(ctx) {
+    const alpha = clamp(this.life / this.maxLife, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * alpha, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+class ParticleSystem {
+  constructor() { this.particles = []; }
+  emit(x, y, colors, count = 8) {
+    for (let i = 0; i < count; i++) {
+      this.particles.push(new Particle(x, y, colors[Math.floor(Math.random() * colors.length)]));
+    }
+  }
+  update(dt) {
+    this.particles.forEach(p => p.update(dt));
+    this.particles = this.particles.filter(p => p.life > 0);
+  }
+  draw(ctx) { this.particles.forEach(p => p.draw(ctx)); }
+}
+
+// ── Background ────────────────────────────────────────────────
+class Background {
+  constructor() {
+    this.clouds = [];
+    this.tileOffset = 0;
+    this.groundOffset = 0;
+    this.time = 0;
+    for (let i = 0; i < 5; i++) {
+      this.clouds.push({ x: randBetween(0, LOGICAL_W), y: randBetween(30, 130), r: randBetween(28, 58), speed: randBetween(0.24, 0.38) });
+    }
+  }
+
+  getSkyColor(score) {
+    const t = clamp(score / 3000, 0, 1);
+    if (t < 0.5) {
+      const u = t * 2;
+      return [lerpColor('#87CEEB', '#FF8C42', u), lerpColor('#FFF9C4', '#FF6B35', u)];
+    } else {
+      const u = (t - 0.5) * 2;
+      return [lerpColor('#FF8C42', '#1a1a2e', u), lerpColor('#FF6B35', '#0f0f23', u)];
+    }
+  }
+
+  update(dt, scrollSpeed, score) {
+    this.time += dt;
+    this.tileOffset = (this.tileOffset + scrollSpeed * 0.6 * dt) % 80;
+    this.groundOffset = (this.groundOffset + scrollSpeed * dt) % 60;
+    this.clouds.forEach(c => {
+      c.x -= scrollSpeed * c.speed * dt;
+      if (c.x < -80) { c.x = LOGICAL_W + 80; c.y = randBetween(30, 130); c.r = randBetween(28, 58); }
+    });
+  }
+
+  draw(ctx, score) {
+    const [sky1, sky2] = this.getSkyColor(score);
+    const grad = ctx.createLinearGradient(0, 0, 0, LOGICAL_H);
+    grad.addColorStop(0, sky1); grad.addColorStop(1, sky2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    // 별 (밤)
+    const nightT = clamp((score - 1500) / 1500, 0, 1);
+    if (nightT > 0) {
+      ctx.save();
+      for (let i = 0; i < 30; i++) {
+        const sx = (i * 137 + 50) % LOGICAL_W;
+        const sy = (i * 73 + 20) % (LOGICAL_H * 0.5);
+        const flicker = 0.5 + 0.5 * Math.sin(this.time * 2 + i);
+        ctx.globalAlpha = nightT * flicker * 0.85;
+        ctx.fillStyle = '#FFF';
+        ctx.beginPath(); ctx.arc(sx, sy, 1.3, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // 구름
+    ctx.save();
+    this.clouds.forEach(c => {
+      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+      ctx.arc(c.x + c.r * 0.62, c.y - c.r * 0.32, c.r * 0.68, 0, Math.PI * 2);
+      ctx.arc(c.x - c.r * 0.5, c.y - c.r * 0.1, c.r * 0.58, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+
+    // 지붕 타일
+    ctx.save();
+    ctx.fillStyle = '#8B6914';
+    for (let x = -this.tileOffset; x < LOGICAL_W + 80; x += 80) {
+      ctx.beginPath();
+      ctx.moveTo(x, GROUND_Y - 10);
+      ctx.lineTo(x + 40, GROUND_Y - 23);
+      ctx.lineTo(x + 80, GROUND_Y - 10);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 지면
+    ctx.fillStyle = '#A0784A';
+    ctx.fillRect(0, GROUND_Y, LOGICAL_W, LOGICAL_H - GROUND_Y);
+    ctx.strokeStyle = '#7A5830';
+    ctx.lineWidth = 2;
+    for (let x = -this.groundOffset; x < LOGICAL_W; x += 60) {
+      ctx.beginPath(); ctx.moveTo(x, GROUND_Y); ctx.lineTo(x, LOGICAL_H); ctx.stroke();
+    }
+    ctx.fillStyle = '#C8963C';
+    ctx.fillRect(0, GROUND_Y - 6, LOGICAL_W, 8);
+  }
+}
+
+// =============================================================
+// SECTION 5: UIRenderer
+// =============================================================
+const UIRenderer = {
+
+  drawHUD(ctx, score, highScore, shieldTimer, comboCount, scrollSpeed, lives) {
+    ctx.save();
+    ctx.fillStyle = '#FFF';
+    ctx.shadowColor = '#0008';
+    ctx.shadowBlur = 4;
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`점수: ${Math.floor(score)}`, 14, 14);
+    ctx.font = '14px sans-serif';
+    ctx.fillText(`최고: ${Math.floor(highScore)}`, 14, 42);
+    // 목숨 하트
+    ctx.font = '16px sans-serif';
+    ctx.shadowBlur = 0;
+    let hearts = '';
+    for (let i = 0; i < 3; i++) hearts += i < lives ? '❤️' : '🖤';
+    ctx.fillText(hearts, 14, 62);
+
+    // 레벨 진행도 바 (오른쪽 상단)
+    const tier = Math.floor(score / SCORE_PER_SPEED_TIER);
+    const progress = (score % SCORE_PER_SPEED_TIER) / SCORE_PER_SPEED_TIER;
+    const bx = LOGICAL_W - 126, by = 10, bw = 112, bh = 11;
+    const levelHue = Math.min(120, tier * 15); // 빨강→녹색
+    const levelColor = `hsl(${30 + levelHue}, 90%, 60%)`;
+
+    // 배경 바
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    drawRoundRect(ctx, bx, by, bw, bh, 5); ctx.fill();
+    // 진행 바
+    ctx.fillStyle = levelColor;
+    ctx.shadowColor = levelColor;
+    ctx.shadowBlur = 7;
+    drawRoundRect(ctx, bx + 1, by + 1, Math.max(4, (bw - 2) * progress), bh - 2, 4); ctx.fill();
+    ctx.shadowBlur = 0;
+    // 레벨 텍스트
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Lv.${tier + 1}`, bx - 5, by + 1);
+    // 일시정지 안내 (레벨바 바로 아래)
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('P / Esc  일시정지', LOGICAL_W - 10, by + bh + 4);
+
+    if (shieldTimer > 0) {
+      const bx = LOGICAL_W/2 - 64, by = 12, bw = 128, bh = 15;
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      drawRoundRect(ctx, bx, by, bw, bh, 7); ctx.fill();
+      ctx.fillStyle = '#00FF88';
+      ctx.shadowColor = '#00FF88';
+      ctx.shadowBlur = 10;
+      const fw = (shieldTimer / 3.0) * (bw - 4);
+      drawRoundRect(ctx, bx+2, by+2, Math.max(0,fw), bh-4, 5); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#FFF';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🌿 캣닢 무적!', LOGICAL_W/2, by + bh + 11);
+    }
+
+    if (comboCount >= 3) {
+      ctx.font = `bold ${18 + Math.min(comboCount, 10)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `hsl(${(comboCount * 20) % 360}, 90%, 65%)`;
+      ctx.shadowColor = '#000';
+      ctx.shadowBlur = 6;
+      ctx.fillText(`${comboCount}× COMBO!`, LOGICAL_W/2, LOGICAL_H - 36);
+    }
+    ctx.restore();
+  },
+
+  drawMenu(ctx, blinkPhase, highScore, bg, time, selectedCatIdx) {
+    bg.draw(ctx, 0);
+
+    // 메뉴 고양이 (오른쪽에 앉아있음)
+    const tailAng = time * 2;
+    drawCat(ctx, LOGICAL_W * 0.78, GROUND_Y, CAT_PRESETS[selectedCatIdx], 'sit', 0, tailAng, 1.15);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.48)';
+    drawRoundRect(ctx, LOGICAL_W/2 - 210, 55, 420, 230, 18);
+    ctx.fill();
+
+    ctx.fillStyle = '#FFF';
+    ctx.shadowColor = '#FF8C42';
+    ctx.shadowBlur = 14;
+    ctx.font = 'bold 56px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('냐옹런', LOGICAL_W/2, 128);
+
+    ctx.shadowBlur = 0;
+    ctx.font = '17px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillText('🐟 생선을 모으고  🐕 장애물을 피하세요!', LOGICAL_W/2, 180);
+
+    if (highScore > 0) {
+      ctx.font = '15px sans-serif';
+      ctx.fillStyle = '#FFD700';
+      ctx.fillText(`🏆 최고 기록: ${Math.floor(highScore)}점`, LOGICAL_W/2, 212);
+    }
+
+    const alpha = 0.5 + 0.5 * Math.sin(blinkPhase);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('스페이스 / 탭하여 시작', LOGICAL_W/2, 252);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('↑ 점프  |  2단 점프 가능  |  ↓ 숙이기', LOGICAL_W/2, LOGICAL_H - 20);
+    ctx.restore();
+  },
+
+  drawCharacterSelect(ctx, selectedIdx, blinkPhase, time) {
+    const grad = ctx.createLinearGradient(0, 0, 0, LOGICAL_H);
+    grad.addColorStop(0, '#2D1B69'); grad.addColorStop(1, '#11083A');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 10;
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🐱 고양이를 선택하세요!', LOGICAL_W/2, 36);
+    ctx.shadowBlur = 0;
+
+    const cols = 3;
+    const panelW = 178, panelH = 128, gapX = 22, gapY = 16;
+    const startX = (LOGICAL_W - (cols * panelW + (cols-1) * gapX)) / 2;
+    const startY = 66;
+
+    for (let i = 0; i < CAT_PRESETS.length; i++) {
+      const col = i % cols, row = Math.floor(i / cols);
+      const px = startX + col * (panelW + gapX);
+      const py = startY + row * (panelH + gapY);
+      const isSel = i === selectedIdx;
+
+      ctx.save();
+      if (isSel) {
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 18;
+        ctx.translate(px + panelW/2, py + panelH/2);
+        ctx.scale(1.05, 1.05);
+        ctx.translate(-(px + panelW/2), -(py + panelH/2));
+      }
+      ctx.fillStyle = isSel ? 'rgba(255,215,0,0.16)' : 'rgba(255,255,255,0.07)';
+      drawRoundRect(ctx, px, py, panelW, panelH, 12);
+      ctx.fill();
+      ctx.strokeStyle = isSel ? '#FFD700' : 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = isSel ? 2.5 : 1.5;
+      ctx.stroke();
+
+      const catX = px + panelW * 0.42;
+      const catY = py + panelH * 0.63;
+      drawCat(ctx, catX, catY, CAT_PRESETS[i], 'sit', 0, time * 2 + i, 0.82);
+
+      ctx.fillStyle = isSel ? '#FFD700' : '#EEE';
+      ctx.font = isSel ? 'bold 14px sans-serif' : '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(CAT_PRESETS[i].name, px + panelW/2, py + panelH - 15);
+      ctx.restore();
+    }
+
+    const bx = LOGICAL_W/2 - 88, by = LOGICAL_H - 48, bw = 176, bh = 35;
+    const ba = 0.75 + 0.25 * Math.sin(blinkPhase * 1.5);
+    ctx.save();
+    ctx.globalAlpha = ba;
+    ctx.fillStyle = '#FF8C42';
+    ctx.shadowColor = '#FF8C42';
+    ctx.shadowBlur = 14;
+    drawRoundRect(ctx, bx, by, bw, bh, 18);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 17px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚀 출발!', LOGICAL_W/2, by + bh/2);
+    ctx.restore();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('← → 방향키로 선택  |  Enter / 탭으로 확정', LOGICAL_W/2, LOGICAL_H - 10);
+  },
+
+  // ── 튜토리얼 화면 ────────────────────────────────────────
+  drawTutorial(ctx, blinkPhase, time) {
+    // 배경
+    const grad = ctx.createLinearGradient(0, 0, 0, LOGICAL_H);
+    grad.addColorStop(0, '#1A2A4A');
+    grad.addColorStop(1, '#0D1A30');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    // 타이틀
+    ctx.save();
+    ctx.fillStyle = '#FFD700';
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 10;
+    ctx.font = 'bold 21px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🎮 게임 방법을 알아보세요!', LOGICAL_W/2, 24);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    // 패널 공통 설정
+    const panY = 44, panH = 256;
+    const LX = 14, RX = 412, PW = 374;
+
+    // ── 왼쪽 패널 (장애물) ──
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,80,80,0.1)';
+    drawRoundRect(ctx, LX, panY, PW, panH, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,110,110,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 왼쪽 헤더
+    ctx.fillStyle = '#FF9999';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚫  피해야 할 장애물', LX + 14, panY + 20);
+
+    // 구분선
+    ctx.strokeStyle = 'rgba(255,110,110,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(LX + 10, panY + 36);
+    ctx.lineTo(LX + PW - 10, panY + 36);
+    ctx.stroke();
+
+    // 장애물 4종 - 각 행 높이 50px, 시작 y=panY+44
+    const obstacleRows = [
+      { emoji: '🐕', label: '개',       hint: '↑  점프해서 피하기', color: '#FFCCCC' },
+      { emoji: '🧴', label: '스프레이', hint: '↓  숙여서 피하기',   color: '#FFE0CC' },
+      { emoji: '💧', label: '물웅덩이', hint: '↑  점프해서 피하기', color: '#CCDDFF' },
+      { emoji: '🤖', label: '룸바',     hint: '↑  점프! (고점수)',  color: '#DDCCFF' },
+    ];
+    obstacleRows.forEach((o, i) => {
+      const ry = panY + 44 + i * 50;          // 행 중심 y
+      const ex = LX + 40, lx2 = LX + 72;
+      drawEmoji(ctx, o.emoji, ex, ry, 30);
+      ctx.fillStyle = '#FFF';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(o.label, lx2, ry - 8);
+      ctx.fillStyle = o.color;
+      ctx.font = '12px sans-serif';
+      ctx.fillText(o.hint, lx2, ry + 10);
+    });
+    ctx.restore();
+
+    // ── 오른쪽 패널 (아이템 + 조작법) ──
+    ctx.save();
+    ctx.fillStyle = 'rgba(80,255,150,0.08)';
+    drawRoundRect(ctx, RX, panY, PW, panH, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(80,255,150,0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 오른쪽 헤더 (아이템)
+    ctx.fillStyle = '#88FFAA';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💎  모아야 할 아이템', RX + 14, panY + 20);
+
+    ctx.strokeStyle = 'rgba(80,255,150,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(RX + 10, panY + 36);
+    ctx.lineTo(RX + PW - 10, panY + 36);
+    ctx.stroke();
+
+    // 아이템 3종 - 각 행 높이 50px
+    const itemRows = [
+      { emoji: '🐟', label: '생선',   hint: '+50점  (콤보시 배수!)', color: '#AADDFF' },
+      { emoji: '🧶', label: '실뭉치', hint: '+30점  (콤보시 배수!)', color: '#FFCCEE' },
+      { emoji: '🌿', label: '캣닢',   hint: '무적 3초!  (희귀!)',    color: '#AAFFCC' },
+    ];
+    itemRows.forEach((o, i) => {
+      const ry = panY + 44 + i * 50;
+      const ex = RX + 40, lx2 = RX + 72;
+      drawEmoji(ctx, o.emoji, ex, ry, 30);
+      ctx.fillStyle = '#FFF';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(o.label, lx2, ry - 8);
+      ctx.fillStyle = o.color;
+      ctx.font = '12px sans-serif';
+      ctx.fillText(o.hint, lx2, ry + 10);
+    });
+
+    // 구분선 (조작법 위)
+    const ctrlY = panY + 44 + 3 * 50 + 8;   // 3행 끝 + 여백 (=246)
+    ctx.strokeStyle = 'rgba(255,215,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(RX + 10, ctrlY);
+    ctx.lineTo(RX + PW - 10, ctrlY);
+    ctx.stroke();
+
+    // 조작법 섹션
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🕹️  조작법', RX + 14, ctrlY + 14);
+
+    ctx.fillStyle = '#DDE';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('↑ / Space  :  점프  (공중에서 한 번 더!)', RX + 14, ctrlY + 30);
+    ctx.fillText('↓ / S           :  숙이기', RX + 14, ctrlY + 46);
+    ctx.restore();
+
+    // 시작 버튼
+    const alpha = 0.62 + 0.38 * Math.sin(blinkPhase * 2);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#FF8C42';
+    ctx.shadowColor = '#FF8C42';
+    ctx.shadowBlur = 16;
+    drawRoundRect(ctx, LOGICAL_W/2 - 134, 330, 268, 38, 19);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 17px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🐱 스페이스 / 탭하여 시작!', LOGICAL_W/2, 349);
+    ctx.restore();
+  },
+
+  drawGameOver(ctx, score, highScore, isNewRecord, animPhase) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.min(0.65, animPhase * 2)})`;
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    if (animPhase < 0.18) return;
+
+    const scale = Math.min(1, 0.4 + animPhase * 3);
+    ctx.save();
+    ctx.translate(LOGICAL_W/2, LOGICAL_H/2);
+    ctx.scale(scale, scale);
+    ctx.translate(-LOGICAL_W/2, -LOGICAL_H/2);
+
+    ctx.fillStyle = 'rgba(18,8,38,0.94)';
+    drawRoundRect(ctx, LOGICAL_W/2 - 185, LOGICAL_H/2 - 115, 370, 230, 18);
+    ctx.fill();
+    ctx.strokeStyle = '#FF8C42';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = '#FF4444';
+    ctx.shadowColor = '#FF4444';
+    ctx.shadowBlur = 12;
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillText('GAME OVER', LOGICAL_W/2, LOGICAL_H/2 - 68);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(`점수: ${Math.floor(score)}점`, LOGICAL_W/2, LOGICAL_H/2 - 22);
+
+    if (isNewRecord) {
+      ctx.fillStyle = '#FFD700';
+      ctx.shadowColor = '#FFD700';
+      ctx.shadowBlur = 10;
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('🏆 신기록!', LOGICAL_W/2, LOGICAL_H/2 + 16);
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.fillStyle = '#AAA';
+      ctx.font = '16px sans-serif';
+      ctx.fillText(`최고 기록: ${Math.floor(highScore)}점`, LOGICAL_W/2, LOGICAL_H/2 + 16);
+    }
+
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.font = '15px sans-serif';
+    ctx.fillText('스페이스 / 탭 → 다시 도전', LOGICAL_W/2, LOGICAL_H/2 + 55);
+    ctx.fillStyle = 'rgba(255,200,100,0.72)';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Enter → 캐릭터 선택', LOGICAL_W/2, LOGICAL_H/2 + 80);
+
+    ctx.restore();
+  },
+
+  drawPause(ctx) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    ctx.fillStyle = 'rgba(20,10,50,0.92)';
+    drawRoundRect(ctx, LOGICAL_W/2 - 160, LOGICAL_H/2 - 80, 320, 160, 18);
+    ctx.fill();
+    ctx.strokeStyle = '#AABBFF';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#FFF';
+    ctx.shadowColor = '#AABBFF';
+    ctx.shadowBlur = 10;
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('⏸ 일시정지', LOGICAL_W/2, LOGICAL_H/2 - 26);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('P / Esc  →  계속하기', LOGICAL_W/2, LOGICAL_H/2 + 18);
+    ctx.fillStyle = 'rgba(255,200,100,0.72)';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Enter → 캐릭터 선택', LOGICAL_W/2, LOGICAL_H/2 + 46);
+    ctx.restore();
+  }
+};
+
+// =============================================================
+// SECTION 6: InputHandler
+// =============================================================
+const InputHandler = {
+  jumpPressed: false,   // Space 또는 ArrowUp (게임 플레이용)
+  duckPressed: false,   // ArrowDown 또는 S (게임 플레이용)
+  leftPressed: false,
+  rightPressed: false,
+  upPressed: false,     // ArrowUp 단독 (메뉴 네비게이션용)
+  downPressed: false,   // ArrowDown 단독 (메뉴 네비게이션용)
+  enterPressed: false,
+  pausePressed: false,  // P 또는 Escape (일시정지용)
+  _jumpConsumed: false,
+  _enterConsumed: false,
+  _spaceJustPressed: false, // Space만 (캐릭터 선택 확정용)
+  _pauseJustPressed: false, // Pause 엣지 감지용
+
+  init(canvas, game) {
+    document.addEventListener('keydown', e => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (!InputHandler.jumpPressed) InputHandler._jumpConsumed = false;
+        InputHandler.jumpPressed = true;
+        InputHandler._spaceJustPressed = true;
+      }
+      if (e.code === 'ArrowUp') {
+        e.preventDefault();
+        if (!InputHandler.jumpPressed) InputHandler._jumpConsumed = false;
+        InputHandler.jumpPressed = true;
+        InputHandler.upPressed = true;
+      }
+      if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        InputHandler.duckPressed = true;
+        InputHandler.downPressed = true;
+      }
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        InputHandler.duckPressed = true;
+      }
+      if (e.code === 'ArrowLeft')  InputHandler.leftPressed  = true;
+      if (e.code === 'ArrowRight') InputHandler.rightPressed = true;
+      if (e.code === 'Enter') {
+        e.preventDefault();
+        InputHandler.enterPressed = true;
+        InputHandler._enterConsumed = false;
+      }
+      if (e.code === 'KeyP' || e.code === 'Escape') {
+        e.preventDefault();
+        if (!InputHandler.pausePressed) InputHandler._pauseJustPressed = true;
+        InputHandler.pausePressed = true;
+      }
+    });
+    document.addEventListener('keyup', e => {
+      if (e.code === 'Space') { InputHandler.jumpPressed = false; InputHandler._spaceJustPressed = false; }
+      if (e.code === 'ArrowUp') { InputHandler.jumpPressed = false; InputHandler.upPressed = false; }
+      if (e.code === 'ArrowDown') { InputHandler.duckPressed = false; InputHandler.downPressed = false; }
+      if (e.key === 's' || e.key === 'S') InputHandler.duckPressed = false;
+      if (e.code === 'ArrowLeft')  InputHandler.leftPressed  = false;
+      if (e.code === 'ArrowRight') InputHandler.rightPressed = false;
+      if (e.code === 'Enter') InputHandler.enterPressed = false;
+      if (e.code === 'KeyP' || e.code === 'Escape') { InputHandler.pausePressed = false; InputHandler._pauseJustPressed = false; }
+    });
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      Array.from(e.changedTouches).forEach(t => {
+        const rect = canvas.getBoundingClientRect();
+        const lx = (t.clientX - rect.left) * (LOGICAL_W / rect.width);
+        const ly = (t.clientY - rect.top)  * (LOGICAL_H / rect.height);
+        if (game.state === GAME_STATE.CHARACTER_SELECT) {
+          game.handleSelectTouch(lx, ly);
+        } else {
+          if (ly < LOGICAL_H * 0.62) {
+            InputHandler.jumpPressed = true;
+            InputHandler._jumpConsumed = false;
+          } else {
+            InputHandler.duckPressed = true;
+          }
+        }
+      });
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      if (e.touches.length === 0) {
+        InputHandler.jumpPressed = false;
+        InputHandler.duckPressed = false;
+      }
+    }, { passive: false });
+  },
+
+  consumeJump() {
+    if (this.jumpPressed && !this._jumpConsumed) { this._jumpConsumed = true; return true; }
+    return false;
+  },
+  consumeEnter() {
+    if (this.enterPressed && !this._enterConsumed) { this._enterConsumed = true; return true; }
+    return false;
+  }
+};
+
+// =============================================================
+// SECTION 7: Game 클래스
+// =============================================================
+class Game {
+  constructor() {
+    this.canvas = document.getElementById('gameCanvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.state = GAME_STATE.MENU;
+    this.score = 0;
+    this.highScore = 0;
+    this.scrollSpeed = BASE_SPEED;
+    this.lastTimestamp = 0;
+    this.blinkPhase = 0;
+    this.gameOverPhase = 0;
+    this.isNewRecord = false;
+    this.allowRestart = false;
+    this.restartTimer = 0;
+    this.selectedCatIdx = 0;
+    this._prevLeft = false;
+    this._prevRight = false;
+    this._prevUp = false;
+    this._prevDown = false;
+    this._prevPause = false;
+    this.cat = null;
+    this.obstacleSpawner = new ObstacleSpawner();
+    this.collectibleSpawner = new CollectibleSpawner();
+    this.particles = new ParticleSystem();
+    this.bg = new Background();
+    this.menuBg = new Background();
+    this.time = 0;
+
+    try {
+      const saved = localStorage.getItem('nyaongrun_cat');
+      if (saved !== null) this.selectedCatIdx = clamp(parseInt(saved), 0, CAT_PRESETS.length - 1);
+      const hs = localStorage.getItem('nyaongrun_highscore');
+      if (hs !== null) this.highScore = parseFloat(hs);
+    } catch(e) {}
+
+    this.setupCanvas();
+    InputHandler.init(this.canvas, this);
+  }
+
+  setupCanvas() {
+    const canvas = this.canvas, ctx = this.ctx;
+    const resize = () => {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const displayScale = Math.min(vw / LOGICAL_W, vh / LOGICAL_H);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width  = Math.round(LOGICAL_W * dpr);
+      canvas.height = Math.round(LOGICAL_H * dpr);
+      canvas.style.width  = `${LOGICAL_W * displayScale}px`;
+      canvas.style.height = `${LOGICAL_H * displayScale}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    window.addEventListener('resize', resize);
+    resize();
+  }
+
+  startGame() {
+    this.score = 0;
+    this.scrollSpeed = BASE_SPEED;
+    this.obstacleSpawner.reset();
+    this.collectibleSpawner.reset();
+    this.particles = new ParticleSystem();
+    this.bg = new Background();
+    this.cat = new Cat(CAT_PRESETS[this.selectedCatIdx]);
+    this.state = GAME_STATE.TUTORIAL;  // 항상 튜토리얼 먼저
+    this.time = 0;
+  }
+
+  goToPlay() {
+    this.state = GAME_STATE.PLAYING;
+  }
+
+  handleSelectTouch(lx, ly) {
+    const cols = 3;
+    const panelW = 178, panelH = 128, gapX = 22, gapY = 16;
+    const startX = (LOGICAL_W - (cols * panelW + (cols-1) * gapX)) / 2;
+    const startY = 66;
+    for (let i = 0; i < CAT_PRESETS.length; i++) {
+      const col = i % cols, row = Math.floor(i / cols);
+      const px = startX + col * (panelW + gapX);
+      const py = startY + row * (panelH + gapY);
+      if (lx >= px && lx <= px+panelW && ly >= py && ly <= py+panelH) {
+        this.selectedCatIdx = i; return;
+      }
+    }
+    const bx = LOGICAL_W/2 - 88, by = LOGICAL_H - 48, bw = 176, bh = 35;
+    if (lx >= bx && lx <= bx+bw && ly >= by && ly <= by+bh) {
+      this.confirmCharacterSelect();
+    }
+  }
+
+  confirmCharacterSelect() {
+    try { localStorage.setItem('nyaongrun_cat', this.selectedCatIdx); } catch(e) {}
+    this.startGame();
+  }
+
+  update(dt) {
+    this.time += dt;
+    this.blinkPhase += dt * 3;
+
+    if (this.state === GAME_STATE.MENU) {
+      this.menuBg.update(dt, 140, 0);
+      if (InputHandler.consumeJump() || InputHandler.consumeEnter()) {
+        InputHandler._spaceJustPressed = false;  // 이전 Space 입력 이월 방지
+        this.state = GAME_STATE.CHARACTER_SELECT;
+      }
+
+    } else if (this.state === GAME_STATE.CHARACTER_SELECT) {
+      const COLS = 3;
+      if (InputHandler.leftPressed && !this._prevLeft) {
+        this.selectedCatIdx = (this.selectedCatIdx - 1 + CAT_PRESETS.length) % CAT_PRESETS.length;
+      }
+      if (InputHandler.rightPressed && !this._prevRight) {
+        this.selectedCatIdx = (this.selectedCatIdx + 1) % CAT_PRESETS.length;
+      }
+      if (InputHandler.upPressed && !this._prevUp) {
+        const next = this.selectedCatIdx - COLS;
+        if (next >= 0) this.selectedCatIdx = next;
+      }
+      if (InputHandler.downPressed && !this._prevDown) {
+        const next = this.selectedCatIdx + COLS;
+        if (next < CAT_PRESETS.length) this.selectedCatIdx = next;
+      }
+      this._prevLeft  = InputHandler.leftPressed;
+      this._prevRight = InputHandler.rightPressed;
+      this._prevUp    = InputHandler.upPressed;
+      this._prevDown  = InputHandler.downPressed;
+      // Space 또는 Enter로 확정 (ArrowUp은 위 이동에 사용)
+      if (InputHandler.consumeEnter() || InputHandler._spaceJustPressed) {
+        InputHandler._spaceJustPressed = false;
+        InputHandler._jumpConsumed = true;  // 같은 Space가 TUTORIAL 진입을 막음
+        this.confirmCharacterSelect();
+      }
+
+    } else if (this.state === GAME_STATE.TUTORIAL) {
+      if (InputHandler.consumeJump() || InputHandler.consumeEnter()) {
+        this.goToPlay();
+      }
+
+    } else if (this.state === GAME_STATE.PAUSED) {
+      // 일시정지: P/Esc 다시 누르면 재개
+      if (InputHandler._pauseJustPressed && !this._prevPause) {
+        this.state = GAME_STATE.PLAYING;
+      }
+      if (InputHandler.consumeEnter()) {
+        this.state = GAME_STATE.CHARACTER_SELECT;
+      }
+      this._prevPause = InputHandler._pauseJustPressed;
+
+    } else if (this.state === GAME_STATE.PLAYING) {
+      // P/Esc → 일시정지
+      if (InputHandler._pauseJustPressed && !this._prevPause) {
+        this.state = GAME_STATE.PAUSED;
+        this._prevPause = true;
+        return;
+      }
+      this._prevPause = InputHandler._pauseJustPressed;
+
+      if (InputHandler.consumeJump()) {
+        const wasGrounded = this.cat.isGrounded;
+        this.cat.jump();
+        if (wasGrounded) SoundManager.jump();
+        else SoundManager.doubleJump();
+      }
+      this.cat.duck(InputHandler.duckPressed);
+
+      const prevTier = Math.floor((this.score - SCORE_RATE * 0.016) / SCORE_PER_SPEED_TIER);
+      const tier = Math.floor(this.score / SCORE_PER_SPEED_TIER);
+      this.scrollSpeed = Math.min(MAX_SPEED, BASE_SPEED + tier * SPEED_INCREMENT);
+      if (tier > prevTier) SoundManager.levelUp();
+      this.score += SCORE_RATE * dt;
+
+      this.cat.update(dt, this.scrollSpeed);
+      this.obstacleSpawner.update(dt, this.scrollSpeed, this.score);
+      this.collectibleSpawner.update(dt, this.scrollSpeed);
+      this.particles.update(dt);
+      this.bg.update(dt, this.scrollSpeed, this.score);
+
+      const catBounds = this.cat.getBounds();
+      const collected = this.collectibleSpawner.checkCollect(catBounds);
+      if (collected) {
+        this.cat.comboCount++;
+        this.cat.comboTimer = 3.5;
+        const mult = Math.min(this.cat.comboCount, 10);
+        this.score += collected.points * mult;
+        if (collected.type === 'catnip') {
+          this.cat.activateShield();
+          this.particles.emit(this.cat.x, this.cat.y - 30, ['#00FF88','#88FFAA','#CCFFDD'], 16);
+          SoundManager.collectCatnip();
+        } else if (collected.type === 'fish') {
+          this.particles.emit(this.cat.x, this.cat.y - 30, ['#88CCFF','#FFEE88','#FF9944'], 8);
+          SoundManager.collectFish();
+        } else {
+          this.particles.emit(this.cat.x, this.cat.y - 30, ['#FF88CC','#FFAAFF','#FF66BB'], 8);
+          SoundManager.collectYarn();
+        }
+      }
+
+      if (this.obstacleSpawner.checkCollision(catBounds)) {
+        const hitResult = this.cat.hitByObstacle();
+        if (hitResult === -1) {
+          // 목숨 소진 → 게임 오버
+          this.cat.pose = 'dead';
+          SoundManager.hit();
+          this.particles.emit(this.cat.x, this.cat.y - 20, ['#FF4444','#FF8844','#FFCC44','#FF6666'], 18);
+          this.isNewRecord = this.score > this.highScore;
+          if (this.isNewRecord) {
+            this.highScore = this.score;
+            try { localStorage.setItem('nyaongrun_highscore', this.highScore); } catch(e) {}
+          }
+          this.state = GAME_STATE.GAMEOVER;
+          this.gameOverPhase = 0;
+          this.allowRestart = false;
+          this.restartTimer = 0;
+        } else if (hitResult === 1) {
+          // 목숨 -1, 생존 → 짧은 피격 효과
+          SoundManager.ouch();
+          this.particles.emit(this.cat.x, this.cat.y - 20, ['#FF4444','#FF8844'], 10);
+        }
+      }
+
+    } else if (this.state === GAME_STATE.GAMEOVER) {
+      this.gameOverPhase = Math.min(1, this.gameOverPhase + dt * 1.6);
+      this.restartTimer += dt;
+      if (this.restartTimer > 1.0) this.allowRestart = true;
+      this.particles.update(dt);
+
+      if (this.allowRestart) {
+        if (InputHandler.consumeJump()) {
+          this.startGame();
+        } else if (InputHandler.consumeEnter()) {
+          this.state = GAME_STATE.CHARACTER_SELECT;
+        }
+      }
+    }
+  }
+
+  render() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    if (this.state === GAME_STATE.MENU) {
+      UIRenderer.drawMenu(ctx, this.blinkPhase, this.highScore, this.menuBg, this.time, this.selectedCatIdx);
+
+    } else if (this.state === GAME_STATE.CHARACTER_SELECT) {
+      UIRenderer.drawCharacterSelect(ctx, this.selectedCatIdx, this.blinkPhase, this.time);
+
+    } else if (this.state === GAME_STATE.TUTORIAL) {
+      UIRenderer.drawTutorial(ctx, this.blinkPhase, this.time);
+
+    } else if (
+      this.state === GAME_STATE.PLAYING ||
+      this.state === GAME_STATE.PAUSED ||
+      this.state === GAME_STATE.GAMEOVER
+    ) {
+      this.bg.draw(ctx, this.score);
+      this.collectibleSpawner.draw(ctx);
+      this.obstacleSpawner.draw(ctx);
+      this.particles.draw(ctx);
+      this.cat.draw(ctx);
+      UIRenderer.drawHUD(ctx, this.score, this.highScore, this.cat.shieldTimer, this.cat.comboCount, this.scrollSpeed, this.cat.lives);
+
+      if (this.state === GAME_STATE.PAUSED) {
+        UIRenderer.drawPause(ctx);
+      } else if (this.state === GAME_STATE.GAMEOVER) {
+        UIRenderer.drawGameOver(ctx, this.score, this.highScore, this.isNewRecord, this.gameOverPhase);
+      }
+    }
+  }
+
+  loop(timestamp) {
+    let dt = (timestamp - this.lastTimestamp) / 1000;
+    this.lastTimestamp = timestamp;
+    dt = Math.min(dt, 0.05);
+    this.update(dt);
+    this.render();
+    requestAnimationFrame(ts => this.loop(ts));
+  }
+
+  init() {
+    SoundManager.init();
+    this.lastTimestamp = performance.now();
+    this.loop(this.lastTimestamp);
+  }
+}
+
+// =============================================================
+// SECTION 8: 초기화
+// =============================================================
+const game = new Game();
+game.init();
+</script>
+</body>
+</html>
